@@ -11,120 +11,135 @@ import static com.pedropathing.ivy.pedro.PedroCommands.follow; // Required to ta
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
-
 import org.firstinspires.ftc.teamcode.pedro.Constants;
 
 @Autonomous(name = "PathARed", group = "Autonomous")
 public class PathARed extends LinearOpMode {
-
     private Follower follower;
     private final PoseFactory poseFactory = PoseFactory.degrees();
 
-    // Step control starts immediately on Step 2 (Shooting from wall)
+    // Step control variables
     private int currentStep = 2;
     private final ElapsedTime actionTimer = new ElapsedTime();
 
-    // Robot hardware motor variables
+    // Robot hardware variables
     private DcMotor shooter;
     private DcMotor intake;
+    private Servo gate;
 
-    // Field Coordinates updated with your exact adjusted points
+    // Servo Position Constants
+    private final double GATE_OPEN = 1.0;
+    private final double GATE_CLOSED = 0.0;
+
+    // Field Coordinates (Updated with clearance waypoint)
     private final Pose startAndScorePose = poseFactory.of(56.0, 8.0, -90);
-    private final Pose wallClearancePose = poseFactory.of(56.0, 24.0, -90); // Forward step to avoid hitting wall
-    private final Pose intakePose        = poseFactory.of(10.0, 9.0, 180);
-    private final Pose parkPose          = poseFactory.of(10.0, 190.0, -90);
+    private final Pose wallClearancePose = poseFactory.of(56.0, 24.0, -90);
+    private final Pose intakePose = poseFactory.of(10.0, 9.0, 180);
+
+    // NEW: Clearance point to steer clear of field obstacles/pollen elements on the way to parking
+    // Adjust x: 30.0 and y: 100.0 based on where your exact field hazard lies
+    private final Pose clearancePose = poseFactory.of(30.0, 100.0, -90);
+    private final Pose parkPose = poseFactory.of(10.0, 105.0, -90);
 
     @Override
     public void runOpMode() {
-        Scheduler.reset(); // Reset Ivy scheduler on init
+        Scheduler.reset();
 
-        // Initialize the drivetrain follower using your team's Constants
         follower = Constants.create(hardwareMap);
         follower.setPose(startAndScorePose);
         follower.update();
 
-        // Initialize the mechanism motors from the hardware map configuration
         shooter = hardwareMap.get(DcMotor.class, "shooter");
         intake = hardwareMap.get(DcMotor.class, "intake");
+        gate = hardwareMap.get(Servo.class, "gate");
 
-        // Set motors to brake mode so they stop instantly when power is set to 0
         shooter.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        gate.setPosition(GATE_CLOSED);
 
         waitForStart();
         if (isStopRequested()) return;
 
-        // Reset our timer immediately when the match starts so Step 2 counts cleanly
         actionTimer.reset();
 
-        // Main simple loop that runs during the 30-second autonomous period
         while (opModeIsActive() && !isStopRequested()) {
-            follower.update(); // Keep the drivetrain moving and tracking position
-            Scheduler.execute(); // Tell Ivy to process active commands
+            follower.update();
+            Scheduler.execute();
 
-            // Telemetry reporting for troubleshooting
             telemetry.addData("Step", currentStep);
             telemetry.addData("x", follower.pose().x());
             telemetry.addData("y", follower.pose().y());
             telemetry.update();
 
-            // STEP 2: Hold still and shoot immediately from the starting wall position for 3 seconds
+            // STEP 2: Shoot from wall setup
             if (currentStep == 2) {
-                shooter.setPower(1.0); // Run shooter motor at full power
+                gate.setPosition(GATE_OPEN);
+                shooter.setPower(1.0);
 
                 if (actionTimer.seconds() >= 3.0) {
-                    shooter.setPower(0.0); // Shut off shooter motor completely
-                    schedule(follow(follower, path1())); // Drive straight forward away from wall
+                    shooter.setPower(0.0);
+                    gate.setPosition(GATE_CLOSED);
+
+                    schedule(follow(follower, path1()));
                     currentStep = 3;
                 }
             }
 
-            // STEP 3: Wait until the robot finishes moving forward away from the wall
+            // STEP 3: Clear wall, transition to intake location
             if (currentStep == 3 && !follower.isBusy()) {
-                schedule(follow(follower, path2())); // Drive sideways to the intake location
-                intake.setPower(1.0); // START INTAKE RUNNING ON THE WAY!
+                schedule(follow(follower, path2()));
+                intake.setPower(1.0);
                 currentStep = 4;
             }
 
-            // STEP 4: Wait until the robot arrives at the intake spot
+            // STEP 4: Arrive at intake spot
             if (currentStep == 4 && !follower.isBusy()) {
-                actionTimer.reset(); // Clear the timer so we can count how long to stay there
+                actionTimer.reset();
                 currentStep = 5;
             }
 
-            // STEP 5: Stay at the intake location for 2 more seconds with intake spinning
+            // STEP 5: Intake elements for 2 seconds, then transition to clearance waypoint
             if (currentStep == 5) {
-                intake.setPower(1.0); // Keeps intake running while stationary
-
+                intake.setPower(1.0);
                 if (actionTimer.seconds() >= 2.0) {
-                    intake.setPower(0.0); // Shut off intake motor completely
-                    schedule(follow(follower, path3())); // Schedule driving to the parking spot
+                    intake.setPower(0.0);
+                    schedule(follow(follower, path3())); // MODIFIED: Now runs to the Clearance Waypoint
                     currentStep = 6;
                 }
             }
 
-            // STEP 6: Wait until the robot finishes parking, then do nothing else
+            // NEW STEP 6: Wait for clearance maneuver to finish, then proceed directly to parking
             if (currentStep == 6 && !follower.isBusy()) {
-                currentStep = 7; // Completes the path and holds completely still
+                schedule(follow(follower, path4())); // NEW: Travel safely from clearance position to parking
+                currentStep = 7;
+            }
+
+            // STEP 7: Wait until the robot finishes parking, then stop running
+            if (currentStep == 7 && !follower.isBusy()) {
+                currentStep = 8;
             }
         }
     }
 
-    // Path definitions using only clean Paths.line builders to prevent errors
-
-    // Path 1: Drive straight forward off the wall to clear the boundary safely
+    // Path 1: Drive straight forward off the wall
     public Path path1() {
         return Paths.line(startAndScorePose, wallClearancePose).linear(startAndScorePose, wallClearancePose);
     }
 
-    // Path 2: Drive left to the ground balls while rotating heading to 180 degrees
+    // Path 2: Drive to the intake position
     public Path path2() {
         return Paths.line(wallClearancePose, intakePose).linear(wallClearancePose, intakePose);
     }
 
-    // Path 3: Drive out of the intake zone to the park location
+    // MODIFIED Path 3: Drive out of the intake zone to the safe clearance waypoint
     public Path path3() {
-        return Paths.line(intakePose, parkPose).linear(intakePose, parkPose);
+        return Paths.line(intakePose, clearancePose).linear(intakePose, clearancePose);
+    }
+
+    // NEW Path 4: Final stretch from clearance waypoint to the parking spot
+    public Path path4() {
+        return Paths.line(clearancePose, parkPose).linear(clearancePose, parkPose);
     }
 }
