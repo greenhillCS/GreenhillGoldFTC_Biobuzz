@@ -40,7 +40,7 @@ public class AlexRajEthanButMore extends LinearOpMode {
     // ================= VELOCITY SETTINGS =================
     // Units = encoder ticks per second
 
-    private double shooterVelocity = 1700.0;
+    private double shooterVelocity = 1670.0;
     private double intakeVelocity = 800.0;
 
     private static final double VELOCITY_STEP = 10.0;

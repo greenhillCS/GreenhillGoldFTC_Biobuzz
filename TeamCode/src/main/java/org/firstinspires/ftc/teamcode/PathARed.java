@@ -34,14 +34,14 @@ public class PathARed extends LinearOpMode {
     private final double GATE_CLOSED = 0.0;
 
     // Field Coordinates (Updated with clearance waypoint)
-    private final Pose startAndScorePose = poseFactory.of(56.0, 8.0, -90);
-    private final Pose wallClearancePose = poseFactory.of(56.0, 24.0, -90);
-    private final Pose intakePose = poseFactory.of(10.0, 9.0, 180);
+    private final Pose startAndScorePose = poseFactory.of(56.0, 8.0, 90);
+    private final Pose wallClearancePose = poseFactory.of(56.0, 24.0, 90);
+    private final Pose intakePose = poseFactory.of(56, 56, 270);
 
     // NEW: Clearance point to steer clear of field obstacles/pollen elements on the way to parking
     // Adjust x: 30.0 and y: 100.0 based on where your exact field hazard lies
-    private final Pose clearancePose = poseFactory.of(30.0, 100.0, -90);
-    private final Pose parkPose = poseFactory.of(10.0, 105.0, -90);
+    private final Pose clearancePose = poseFactory.of(30.0, 50, 90);
+    private final Pose parkPose = poseFactory.of(10.0, 64, 90);
 
     @Override
     public void runOpMode() {
