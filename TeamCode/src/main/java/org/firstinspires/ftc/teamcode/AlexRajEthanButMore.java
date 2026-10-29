@@ -29,6 +29,8 @@ public class AlexRajEthanButMore extends LinearOpMode {
     private DcMotorEx shooter;
     private DcMotorEx intake;
 
+    private boolean intakeOn = false;
+    private boolean lastLeftBumper = false;
 
     // ================= SERVO =================
 
@@ -258,14 +260,17 @@ public class AlexRajEthanButMore extends LinearOpMode {
             // Left bumper
             // ==================================================
 
-            if (gamepad2.left_bumper) {
+            if (gamepad2.left_bumper && !lastLeftBumper) {
+                intakeOn = !intakeOn;
+            }
 
+            if (intakeOn) {
                 intake.setVelocity(intakeVelocity);
-
             } else {
-
                 intake.setVelocity(0);
             }
+
+            lastLeftBumper = gamepad2.left_bumper;
 
 
 
@@ -345,9 +350,7 @@ public class AlexRajEthanButMore extends LinearOpMode {
 
             telemetry.addData(
                     "Intake",
-                    gamepad2.left_bumper
-                            ? "ON"
-                            : "OFF"
+                    intakeOn ? "ON" : "OFF"
             );
 
             telemetry.addData(
