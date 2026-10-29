@@ -53,7 +53,7 @@ public class PathARed extends LinearOpMode {
 
         shooter = hardwareMap.get(DcMotor.class, "shooter");
         intake = hardwareMap.get(DcMotor.class, "intake");
-        gate = hardwareMap.get(Servo.class, "gate");
+        gate = hardwareMap.get(Servo.class, "gateServo");
 
         shooter.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
