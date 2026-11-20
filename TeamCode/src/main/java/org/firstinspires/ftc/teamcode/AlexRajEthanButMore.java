@@ -1,31 +1,84 @@
+
 package org.firstinspires.ftc.teamcode;
 
-import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.pedropathing.api.Paths;
+import com.pedropathing.api.PoseFactory;
+import com.pedropathing.follower.Follower;
+import com.pedropathing.follower.ManualDrive;
+import com.pedropathing.math.Pose;
+import com.pedropathing.paths.Path;
+
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.Servo;
 
-@TeleOp(name="AlexRajEthanButMore", group="Linear OpMode")
+import org.firstinspires.ftc.teamcode.pedro.Constants;
+import org.firstinspires.ftc.teamcode.pedro.Position_Storage;
+
+
+@TeleOp(name = "AlexRajEthanButMore", group = "Linear OpMode")
 public class AlexRajEthanButMore extends LinearOpMode {
 
-    private DcMotor frontLeftDrive;
-    private DcMotor backLeftDrive;
-    private DcMotor frontRightDrive;
-    private DcMotor backRightDrive;
+    // =====================================================
+    // PEDRO PATHING
+    // =====================================================
+
+    private Follower follower;
+
+    private final PoseFactory poseFactory =
+            PoseFactory.degrees();
+
+    // Robot's position when TeleOp initializes
+    private final Pose startPose =
+            poseFactory.of(0, 0, 0);
+
+    // Gamepad 1 A
+    private final Pose waypoint1 =
+            poseFactory.of(0, 0, 0);
+
+    // Gamepad 1 X
+    private final Pose waypoint2 =
+            poseFactory.of(105.79, 4.95, 185.9);
+
+    private boolean lastWaypointA = false;
+    private boolean lastWaypointX = false;
+
+    private String targetName = "None";
+
+
+    // =====================================================
+    // SHOOTER / INTAKE
+    // =====================================================
 
     private DcMotorEx shooter;
     private DcMotorEx intake;
 
-    private Servo ramp;
-
     private boolean shooterOn = false;
     private boolean lastRightBumper = false;
 
+    // 1 = forward, 0 = off, -1 = reverse
     private int intakeDirection = 0;
 
     private boolean lastLeftBumper = false;
     private boolean lastB = false;
+
+
+    // =====================================================
+    // RAMP
+    // =====================================================
+
+    private Servo ramp;
+
+    private static final double RAMP_DOWN = 0.25;
+    private static final double RAMP_UP = 0.45;
+
+
+    // =====================================================
+    // VELOCITIES
+    // =====================================================
 
     private double shooterVelocity = 1200.0;
 
@@ -35,38 +88,31 @@ public class AlexRajEthanButMore extends LinearOpMode {
     private boolean lastDpadUp = false;
     private boolean lastDpadDown = false;
 
-    private static final double RAMP_DOWN = 0.35;
-    private static final double RAMP_UP = 0.55;
+
+    // =====================================================
+    // RUN OPMODE
+    // =====================================================
 
     @Override
     public void runOpMode() {
 
-        frontLeftDrive =
-                hardwareMap.get(DcMotor.class, "front_left_drive");
+        // =================================================
+        // PEDRO INITIALIZATION
+        // =================================================
 
-        backLeftDrive =
-                hardwareMap.get(DcMotor.class, "back_left_drive");
+        follower = Constants.create(hardwareMap);
 
-        frontRightDrive =
-                hardwareMap.get(DcMotor.class, "front_right_drive");
+        follower.setPose(startPose);
+        follower.update();
 
-        backRightDrive =
-                hardwareMap.get(DcMotor.class, "back_right_drive");
 
-        shooter =
-                hardwareMap.get(DcMotorEx.class, "shooter");
+        // =================================================
+        // HARDWARE INITIALIZATION
+        // =================================================
 
-        intake =
-                hardwareMap.get(DcMotorEx.class, "intake");
-
-        ramp =
-                hardwareMap.get(Servo.class, "ramp");
-
-        frontLeftDrive.setDirection(DcMotor.Direction.REVERSE);
-        backLeftDrive.setDirection(DcMotor.Direction.REVERSE);
-
-        frontRightDrive.setDirection(DcMotor.Direction.FORWARD);
-        backRightDrive.setDirection(DcMotor.Direction.FORWARD);
+        shooter = hardwareMap.get(DcMotorEx.class, "shooter");
+        intake = hardwareMap.get(DcMotorEx.class, "intake");
+        ramp = hardwareMap.get(Servo.class, "ramp");
 
         shooter.setDirection(DcMotor.Direction.REVERSE);
         intake.setDirection(DcMotor.Direction.FORWARD);
@@ -76,54 +122,92 @@ public class AlexRajEthanButMore extends LinearOpMode {
 
         shooter.setVelocity(0);
         intake.setVelocity(0);
-
         ramp.setPosition(RAMP_DOWN);
 
         telemetry.addData("Status", "Initialized");
+        telemetry.addData("Starting Pose", "(0, 0, 0)");
         telemetry.update();
 
         waitForStart();
 
+        if (isStopRequested()) {
+            return;
+        }
+
+
+        // =================================================
+        // MAIN LOOP
+        // =================================================
+
         while (opModeIsActive()) {
 
-            double axial = -gamepad1.left_stick_y;
-            double lateral = gamepad1.left_stick_x;
-            double yaw = gamepad1.right_stick_x;
+            // =================================================
+            // WAYPOINT CONTROLS
+            // =================================================
 
-            double frontLeftPower =
-                    axial + lateral + yaw;
+            // Gamepad 1 A = waypoint 1
+            if (gamepad1.a && !lastWaypointA) {
+                goToWaypoint(waypoint1, "Waypoint 1");
+            }
 
-            double frontRightPower =
-                    axial - lateral - yaw;
+            // Gamepad 1 X = waypoint 2
+            if (gamepad1.x && !lastWaypointX) {
+                goToWaypoint(waypoint2, "Waypoint 2");
+            }
 
-            double backLeftPower =
-                    axial - lateral + yaw;
+            lastWaypointA = gamepad1.a;
+            lastWaypointX = gamepad1.x;
 
-            double backRightPower =
-                    axial + lateral - yaw;
+            // Gamepad 1 B = cancel path
+            if (gamepad1.b) {
+                follower.stop();
+                targetName = "Cancelled";
+            }
 
-            double max = Math.max(
-                    Math.max(
-                            Math.abs(frontLeftPower),
-                            Math.abs(frontRightPower)
-                    ),
-                    Math.max(
-                            Math.abs(backLeftPower),
-                            Math.abs(backRightPower)
-                    )
+
+            // =================================================
+            // DRIVE CONTROL
+            // =================================================
+
+            switch (follower.mode()) {
+
+                case FOLLOW:
+
+                    // Pedro controls drivetrain automatically
+                    follower.update();
+                    break;
+
+                case MANUAL:
+                case IDLE:
+                case HOLD:
+
+                    // Manual joystick control
+                    ManualDrive.driveOrHold(
+                            follower,
+                            gamepad1.left_stick_y,
+                            gamepad1.left_stick_x,
+                            -gamepad1.right_stick_x
+                    );
+
+                    follower.update();
+                    break;
+            }
+
+
+            // =================================================
+            // SAVE CURRENT POSITION
+            // =================================================
+
+            Position_Storage.pos = new Pose(
+                    follower.pose().x(),
+                    follower.pose().y(),
+                    follower.pose().heading()
             );
 
-            if (max > 1.0) {
-                frontLeftPower /= max;
-                frontRightPower /= max;
-                backLeftPower /= max;
-                backRightPower /= max;
-            }   
 
-            frontLeftDrive.setPower(frontLeftPower);
-            frontRightDrive.setPower(frontRightPower);
-            backLeftDrive.setPower(backLeftPower);
-            backRightDrive.setPower(backRightPower);
+            // =================================================
+            // SHOOTER SPEED ADJUSTMENT
+            // =================================================
 
             if (gamepad2.dpad_up && !lastDpadUp) {
                 shooterVelocity += VELOCITY_STEP;
@@ -138,34 +222,36 @@ public class AlexRajEthanButMore extends LinearOpMode {
             lastDpadUp = gamepad2.dpad_up;
             lastDpadDown = gamepad2.dpad_down;
 
+
+            // =================================================
+            // SHOOTER TOGGLE
+            // =================================================
+
             if (gamepad2.right_bumper && !lastRightBumper) {
                 shooterOn = !shooterOn;
             }
 
-            if (shooterOn) {
-                shooter.setVelocity(shooterVelocity);
-            } else {
-                shooter.setVelocity(0);
-            }
+            shooter.setVelocity(
+                    shooterOn ? shooterVelocity : 0
+            );
 
             lastRightBumper = gamepad2.right_bumper;
 
-            if (gamepad2.left_bumper && !lastLeftBumper) {
 
-                if (intakeDirection == 1) {
-                    intakeDirection = 0;
-                } else {
-                    intakeDirection = 1;
-                }
+            // =================================================
+            // INTAKE FORWARD / REVERSE
+            // =================================================
+
+            // Left bumper = forward toggle
+            if (gamepad2.left_bumper && !lastLeftBumper) {
+                intakeDirection =
+                        (intakeDirection == 1) ? 0 : 1;
             }
 
+            // B = reverse toggle
             if (gamepad2.b && !lastB) {
-
-                if (intakeDirection == -1) {
-                    intakeDirection = 0;
-                } else {
-                    intakeDirection = -1;
-                }
+                intakeDirection =
+                        (intakeDirection == -1) ? 0 : -1;
             }
 
             intake.setVelocity(
@@ -175,10 +261,58 @@ public class AlexRajEthanButMore extends LinearOpMode {
             lastLeftBumper = gamepad2.left_bumper;
             lastB = gamepad2.b;
 
+
+            // =================================================
+            // RAMP CONTROL
+            // =================================================
+
             if (gamepad2.left_trigger > 0.1) {
                 ramp.setPosition(RAMP_UP);
             } else {
                 ramp.setPosition(RAMP_DOWN);
+            }
+
+
+            // =================================================
+            // TELEMETRY
+            // =================================================
+
+            Pose robotPose = follower.pose();
+
+            telemetry.addData(
+                    "Follower Mode",
+                    follower.mode()
+            );
+
+            telemetry.addData(
+                    "Target",
+                    targetName
+            );
+
+            telemetry.addData(
+                    "Robot X",
+                    "%.2f",
+                    robotPose.x()
+            );
+
+            telemetry.addData(
+                    "Robot Y",
+                    "%.2f",
+                    robotPose.y()
+            );
+
+            telemetry.addData(
+                    "Robot Heading",
+                    "%.1f degrees",
+                    Math.toDegrees(robotPose.heading())
+            );
+
+            if (follower.currentPath() != null) {
+                telemetry.addData(
+                        "Distance To Waypoint",
+                        "%.2f",
+                        follower.distanceToEndpoint()
+                );
             }
 
             telemetry.addData(
@@ -215,21 +349,55 @@ public class AlexRajEthanButMore extends LinearOpMode {
             );
 
             telemetry.addData(
-                    "Shooter Speed",
-                    "D-pad Up/Down = +/- 10"
+                    "Waypoint 1",
+                    "Gamepad 1 A: (0, 0, 0)"
+            );
+
+            telemetry.addData(
+                    "Waypoint 2",
+                    "Gamepad 1 X: (105.79, 4.95, 185.9)"
+            );
+
+            telemetry.addData(
+                    "Cancel",
+                    "Gamepad 1 B"
             );
 
             telemetry.update();
         }
 
+
+        // =================================================
+        // STOP
+        // =================================================
+
+        follower.stop();
+
         shooter.setVelocity(0);
         intake.setVelocity(0);
 
         ramp.setPosition(RAMP_DOWN);
+    }
 
-        frontLeftDrive.setPower(0);
-        frontRightDrive.setPower(0);
-        backLeftDrive.setPower(0);
-        backRightDrive.setPower(0);
+
+    // =====================================================
+    // AUTOMATIC WAYPOINT NAVIGATION
+    // =====================================================
+
+    private void goToWaypoint(Pose target, String name) {
+
+        // Current robot position from Pinpoint
+        Pose currentPose = follower.pose();
+
+        // Create straight path from current location
+        // to the selected waypoint
+        Path path = Paths
+                .line(currentPose, target)
+                .linear(currentPose, target);
+
+        // Start following the path
+        follower.follow(path);
+
+        targetName = name;
     }
 }
