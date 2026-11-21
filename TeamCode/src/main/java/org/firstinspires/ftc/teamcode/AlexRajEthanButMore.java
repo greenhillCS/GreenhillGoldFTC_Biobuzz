@@ -16,6 +16,8 @@ import com.qualcomm.robotcore.hardware.PIDFCoefficients;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
+import java.util.ArrayList;
+
 import org.firstinspires.ftc.teamcode.pedro.Constants;
 import org.firstinspires.ftc.teamcode.pedro.Position_Storage;
 
@@ -30,25 +32,35 @@ public class AlexRajEthanButMore extends LinearOpMode {
 
     private final PoseFactory poseFactory = PoseFactory.degrees();
 
-    // (0, 0, 0) = the shot 1 starting spot, the same as PathARed.
-    // After PathARed, TeleOp starts from where the auto ended instead.
-    private final Pose startPose =
-            poseFactory.of(0, 0, 0);
+    // =====================================================
+    // RECORDED SPOTS (same numbers as PathARed)
+    // =====================================================
+    // (0, 0, 0) = the shot 1 spot, where the auto starts.
+    private final Pose shot1Spot   = poseFactory.of(0, 0, 0);
+    private final Pose loadingSpot = poseFactory.of(3.03, -47.37, 5.5);
+    private final Pose besideStand = poseFactory.of(-73.31, -30.73, 342);
+    private final Pose shot2Spot   = poseFactory.of(-114.87, -2.84, 184.4);
+    private final Pose parkPose    = poseFactory.of(-106.79, -51.95, 93);
 
-    // Waypoint 1 - Gamepad 1 D-pad Up
-    // CHANGED: 360 -> 0. Same direction, but avoids any chance of a full extra spin.
-    private final Pose waypoint1 =
-            poseFactory.of(0, 0, 0);
+    // Waypoints drive the SAME lanes the auto drives (around the goal stand
+    // on the red side, straight in and out at both shot spots), never a
+    // straight line through the middle of the field.
+    private Pose[] lane;          // shot 1 side -> shot 2 side
+    private Pose shot2Stop;       // 2" short of shot 2, like the auto
 
-    // Waypoint 2 - Gamepad 1 D-pad Down: the shot 2 spot
-    // (re-recorded after the Pinpoint offset fix, same as PathARed)
-    private final Pose waypoint2 =
-            poseFactory.of(-114.65, -2.8, 184.3);
+    private static final double STRAIGHT_IN_SPEED = 0.3;    // last push into a shot spot
+    private static final double STRAIGHT_IN_LIMIT_S = 2.0;  // stop pushing after this
 
     // Waypoint safety settings
     private static final double WAYPOINT_SPEED = 0.5;       // fraction of max path speed
-    private static final double WAYPOINT_TIMEOUT_S = 8.0;   // give up and stop after this
+    private static final double WAYPOINT_TIMEOUT_S = 15.0;  // give up and stop after this
     private static final double STICK_OVERRIDE = 0.3;       // any stick past this cancels auto
+
+    // 0 = none, 1 = driving the lane, 2 = settling, 3 = straight push in
+    private int stage = 0;
+    private boolean goingToShot2 = false;
+    private double settleSeconds = 0.3;
+    private final ElapsedTime stageTimer = new ElapsedTime();
 
     private boolean lastDpadUp1 = false;
     private boolean lastDpadDown1 = false;
@@ -117,15 +129,24 @@ public class AlexRajEthanButMore extends LinearOpMode {
 
         follower = Constants.create(hardwareMap);
 
-        // Continue from wherever the robot last was (end of PathARed, or the
-        // end of the last TeleOp run). If you moved the robot by hand back to
-        // the shot 1 spot, press D-pad Left during INIT to start at (0, 0, 0).
-        // After the robot app restarts, it always starts at (0, 0, 0).
-        boolean useAutoPose = Position_Storage.fromAuto;
+        buildLane();
 
-        follower.setPose(useAutoPose ? Position_Storage.pos : startPose);
+        // START POSITION
+        // Default: exactly where the auto stopped (if PathARed ran since the
+        // robot app started), otherwise the park spot.
+        // During INIT: D-pad Left = robot is on the shot 1 spot instead,
+        //              D-pad Right = back to the default.
+        Pose autoEnd = null;
+        if (Position_Storage.fromAuto && Position_Storage.pos != null) {
+            Pose saved = Position_Storage.pos;
+            autoEnd = new Pose(saved.x(), saved.y(), saved.heading());
+        }
+        Pose defaultStart = (autoEnd != null) ? autoEnd : parkPose;
+        String defaultName = (autoEnd != null) ? "WHERE THE AUTO STOPPED" : "PARK SPOT";
+
+        boolean startAtShot1 = false;
+        follower.setPose(defaultStart);
         follower.update();
-
 
         // =================================================
         // HARDWARE INITIALIZATION
@@ -152,35 +173,41 @@ public class AlexRajEthanButMore extends LinearOpMode {
 
         ramp.setPosition(RAMP_DOWN);
 
-        // INIT: show which start position is being used.
-        // If the robot was picked up and put back at the shot 1 spot after
-        // the auto, press D-pad Left on gamepad 1 to start from (0, 0, 0).
+        // INIT loop: choose and show the start position
         while (!isStarted() && !isStopRequested()) {
 
-            if (useAutoPose && gamepad1.dpad_left) {
-                useAutoPose = false;
-                follower.setPose(startPose);
-                follower.update();
+            boolean before = startAtShot1;
+            if (gamepad1.dpad_left) {
+                startAtShot1 = true;
             }
+            if (gamepad1.dpad_right) {
+                startAtShot1 = false;
+            }
+            if (before != startAtShot1) {
+                follower.setPose(startAtShot1 ? shot1Spot : defaultStart);
+            }
+            follower.update();
 
+            Pose now = follower.pose();
             telemetry.addData("Status", "Initialized");
-
-            if (useAutoPose) {
-                Pose p = Position_Storage.pos;
-                telemetry.addData("Start Position", "CONTINUING from last run (%.1f, %.1f, %.0f°)",
-                        p.x(), p.y(), Math.toDegrees(p.heading()));
-                telemetry.addData("Moved the robot by hand to shot 1?", "Press D-pad Left (gamepad 1)");
-            } else {
-                telemetry.addData("Start Position", "(0, 0, 0) = shot 1 spot");
-                telemetry.addData("Check", "Robot must be sitting at the shot 1 spot");
-            }
-
+            telemetry.addData("START SPOT", startAtShot1 ? "SHOT 1 spot (0, 0, 0)" : defaultName);
+            telemetry.addData("Robot position now", "(%.1f, %.1f, %.0f°)",
+                    now.x(), now.y(), Math.toDegrees(now.heading()));
+            telemetry.addData("Robot on the shot 1 spot?", "D-pad Left");
+            telemetry.addData("Back to " + defaultName.toLowerCase() + "?", "D-pad Right");
             telemetry.update();
         }
 
         if (isStopRequested()) {
             return;
         }
+
+        // Set the start position again now that play is pressed, and check
+        // that it stuck (the odometry chip can finish resetting late).
+        setStartPose(startAtShot1 ? shot1Spot : defaultStart);
+
+        // The auto's position has now been used up
+        Position_Storage.fromAuto = false;
 
 
         // =====================================================
@@ -193,14 +220,14 @@ public class AlexRajEthanButMore extends LinearOpMode {
             // WAYPOINT CONTROLS - GAMEPAD 1
             // =================================================
 
-            // D-pad Up = Waypoint 1
+            // D-pad Up = shot 1 spot
             if (gamepad1.dpad_up && !lastDpadUp1) {
-                goToWaypoint(waypoint1, "Waypoint 1");
+                goToSpot(false);
             }
 
-            // D-pad Down = Waypoint 2
+            // D-pad Down = shot 2 spot
             if (gamepad1.dpad_down && !lastDpadDown1) {
-                goToWaypoint(waypoint2, "Waypoint 2");
+                goToSpot(true);
             }
 
             lastDpadUp1 = gamepad1.dpad_up;
@@ -232,14 +259,29 @@ public class AlexRajEthanButMore extends LinearOpMode {
                 // Pedro controls the drivetrain
                 follower.update();
 
-                // isBusy() stays true until the robot has stopped at the target.
-                // After that the follower keeps holding the target pose until
-                // the driver touches a stick, which hands control back.
-                if (!follower.isBusy()) {
-                    waypointActive = false;
-                    activeWaypoint = null;
-                    targetName = "Arrived";
-                } else if (waypointTimer.seconds() > WAYPOINT_TIMEOUT_S) {
+                if (stage == 1) {
+                    // Driving the lane; ends STOPPED in front of the shot spot
+                    if (!follower.isBusy()) {
+                        stage = 2;
+                        stageTimer.reset();
+                    }
+                } else if (stage == 2) {
+                    // Let the turn finish completely before the straight push
+                    if (stageTimer.seconds() > settleSeconds) {
+                        startStraightIn();
+                    }
+                } else if (stage == 3) {
+                    // Slow straight push; stop pushing after a short time
+                    // even if something blocks it an inch or two short
+                    if (!follower.isBusy() || stageTimer.seconds() > STRAIGHT_IN_LIMIT_S) {
+                        Pose q = follower.pose();
+                        Pose t = goingToShot2 ? shot2Spot : shot1Spot;
+                        follower.hold(new Pose(q.x(), q.y(), t.heading()));
+                        finishWaypoint("Arrived");
+                    }
+                }
+
+                if (waypointActive && waypointTimer.seconds() > WAYPOINT_TIMEOUT_S) {
                     cancelWaypoint("Timed out");
                 }
 
@@ -279,7 +321,6 @@ public class AlexRajEthanButMore extends LinearOpMode {
                     robotPose.y(),
                     robotPose.heading()
             );
-            Position_Storage.fromAuto = true;   // next TeleOp continues from here
 
 
             // =================================================
@@ -394,7 +435,10 @@ public class AlexRajEthanButMore extends LinearOpMode {
 
             telemetry.addData(
                     "Navigation",
-                    waypointActive ? "AUTO (sticks or D-pad Left cancel)" : "Manual"
+                    !waypointActive ? "Manual"
+                            : stage == 1 ? "AUTO: driving the lane"
+                            : stage == 2 ? "AUTO: lining up"
+                            : "AUTO: straight in"
             );
 
             if (waypointActive && activeWaypoint != null) {
@@ -488,21 +532,8 @@ public class AlexRajEthanButMore extends LinearOpMode {
             // WAYPOINT TELEMETRY
             // =================================================
 
-            telemetry.addData(
-                    "Waypoint 1",
-                    "D-pad Up: (%.2f, %.2f, %.1f°)",
-                    waypoint1.x(),
-                    waypoint1.y(),
-                    Math.toDegrees(waypoint1.heading())
-            );
-
-            telemetry.addData(
-                    "Waypoint 2",
-                    "D-pad Down: (%.2f, %.2f, %.1f°)",
-                    waypoint2.x(),
-                    waypoint2.y(),
-                    Math.toDegrees(waypoint2.heading())
-            );
+            telemetry.addData("D-pad Up", "shot 1 spot");
+            telemetry.addData("D-pad Down", "shot 2 spot");
 
             telemetry.addData(
                     "Cancel",
@@ -530,54 +561,187 @@ public class AlexRajEthanButMore extends LinearOpMode {
     // AUTOMATIC WAYPOINT NAVIGATION
     // =====================================================
 
-    private void goToWaypoint(Pose target, String name) {
+    // Same lane points the auto uses:
+    //   shot 1 approach -> loading back-off -> beside the stand
+    //   -> just past the stand -> line-up spot in front of shot 2
+    private void buildLane() {
+
+        Pose shot1Approach = backOff(shot1Spot, 12);
+        Pose loadingBackOff = backOff(loadingSpot, 20);
+
+        double dx = shot2Spot.x() - besideStand.x();
+        double dy = shot2Spot.y() - besideStand.y();
+        double len = Math.hypot(dx, dy);
+        Pose clearOfStand = new Pose(
+                besideStand.x() + 10 * dx / len,
+                besideStand.y() + 10 * dy / len,
+                besideStand.heading());
+
+        Pose lineUp = backOff(shot2Spot, 18);
+        shot2Stop = backOff(shot2Spot, 2);
+
+        lane = new Pose[]{shot1Approach, loadingBackOff, besideStand, clearOfStand, lineUp};
+    }
+
+    // A pose moved straight back along the way it faces (same heading)
+    private static Pose backOff(Pose p, double inches) {
+        return new Pose(
+                p.x() - inches * Math.cos(p.heading()),
+                p.y() - inches * Math.sin(p.heading()),
+                p.heading());
+    }
+
+    private static double shortTurn(double from, double to) {
+        double t = to - from;
+        return Math.atan2(Math.sin(t), Math.cos(t));
+    }
+
+    private static double dist(Pose a, Pose b) {
+        return Math.hypot(a.x() - b.x(), a.y() - b.y());
+    }
+
+    private Pose currentPose() {
+        Pose p = follower.pose();
+        return new Pose(p.x(), p.y(), p.heading());
+    }
+
+    // Set the start position and make sure it actually took
+    private void setStartPose(Pose start) {
+        for (int i = 0; i < 10 && opModeIsActive(); i++) {
+            follower.setPose(start);
+            sleep(50);
+            follower.update();
+            Pose q = follower.pose();
+            if (Math.hypot(q.x() - start.x(), q.y() - start.y()) < 1.0
+                    && Math.abs(shortTurn(q.heading(), start.heading())) < Math.toRadians(2)) {
+                return;
+            }
+        }
+    }
+
+    // D-pad Up (shot 1) or D-pad Down (shot 2)
+    private void goToSpot(boolean toShot2) {
 
         driverHasControl = true;
 
-        Pose currentPose = follower.pose();
+        Pose cur = currentPose();
+        Pose target = toShot2 ? shot2Spot : shot1Spot;
 
+        goingToShot2 = toShot2;
         activeWaypoint = target;
-        targetName = name;
-
+        targetName = toShot2 ? "Shot 2" : "Shot 1";
         waypointActive = true;
         waypointTimer.reset();
 
-        // If already at the waypoint, just correct position and heading
-        double distance = Math.hypot(
-                target.x() - currentPose.x(),
-                target.y() - currentPose.y()
-        );
-
-        if (distance < 1.0) {
+        // Already there: just hold it
+        if (dist(cur, target) < 3.0) {
             follower.hold(target);
+            finishWaypoint("Arrived");
             return;
         }
 
-        // CHANGED from .constant(currentPose), which ignored the waypoint's
-        // heading, so the robot never turned to it.
-        // Now the robot turns to the waypoint heading while it drives,
-        // always taking the shorter way around (never more than 180 degrees).
-        double startHeading = currentPose.heading();
-        double turn = target.heading() - startHeading;
-        turn = Math.atan2(Math.sin(turn), Math.cos(turn));
-        double endHeading = startHeading + turn;
+        // Join the lane at the closest lane point, then follow the lane
+        // toward the chosen shot spot
+        int nearest = 0;
+        for (int i = 1; i < lane.length; i++) {
+            if (dist(cur, lane[i]) < dist(cur, lane[nearest])) {
+                nearest = i;
+            }
+        }
+        int last = toShot2 ? lane.length - 1 : 0;
+        int step = toShot2 ? 1 : -1;
 
-        Path path = Paths
-                .line(currentPose, target)
-                .linear(startHeading, endHeading);
+        ArrayList<Pose> pts = new ArrayList<>();
+        for (int i = nearest; ; i += step) {
+            pts.add(lane[i]);
+            if (i == last) {
+                break;
+            }
+        }
 
-        // Speed cap while testing. Raise WAYPOINT_SPEED once it behaves.
-        // If this line does not compile on your Pedro version,
-        // replace it with: follower.follow(path);
-        follower.follow(path.with(Constants.foresightConfig.maxPathSpeed.at(WAYPOINT_SPEED)));
+        ArrayList<Path> legs = new ArrayList<>();
+        Pose from = cur;
+        double h = cur.heading();
+        int k = 0;
+
+        if (dist(cur, pts.get(0)) < 2.0) {
+            // Already on the lane point; start from here
+            k = 1;
+        } else {
+            // Leg onto the lane
+            Pose entry = pts.get(0);
+            double hEntry;
+            if (pts.size() == 1) {
+                // Joining right at the line-up spot: turn to the final heading
+                hEntry = h + shortTurn(h, entry.heading());
+            } else if (nearest == 0 || nearest == 1 || nearest == lane.length - 1) {
+                // Near a wall, loading, or the flower:
+                // back straight out first, no turning
+                hEntry = h;
+            } else {
+                // Turn to how the robot drives the next part of the lane
+                hEntry = h + shortTurn(h, pts.get(1).heading());
+            }
+            legs.add(Paths.line(from, entry).linear(h, hEntry));
+            from = entry;
+            h = hEntry;
+            k = 1;
+        }
+
+        for (; k < pts.size(); k++) {
+            Pose b = pts.get(k);
+            double hb = h + shortTurn(h, b.heading());
+            legs.add(Paths.line(from, b).linear(h, hb));
+            from = b;
+            h = hb;
+        }
+
+        if (legs.isEmpty()) {
+            // Sitting on the line-up spot: turn there, then push in
+            follower.hold(pts.get(pts.size() - 1));
+            settleSeconds = 1.0;
+            stage = 2;
+            stageTimer.reset();
+            return;
+        }
+
+        settleSeconds = 0.3;
+        follower.follow(Paths.path(legs.toArray(new Path[0]))
+                .with(Constants.foresightConfig.maxPathSpeed.at(WAYPOINT_SPEED)));
+        stage = 1;
+    }
+
+    // Slow, straight push from the line-up spot into the shot spot
+    private void startStraightIn() {
+
+        Pose from = currentPose();
+        Pose to = goingToShot2 ? shot2Stop : shot1Spot;
+
+        if (dist(from, to) < 1.0) {
+            follower.hold(to);
+            finishWaypoint("Arrived");
+            return;
+        }
+
+        follower.follow(Paths
+                .line(from, to)
+                .constant(to)
+                .with(Constants.foresightConfig.maxPathSpeed.at(STRAIGHT_IN_SPEED)));
+        stage = 3;
+        stageTimer.reset();
+    }
+
+    private void finishWaypoint(String status) {
+
+        waypointActive = false;
+        stage = 0;
+        activeWaypoint = null;
+        targetName = status;
     }
 
     private void cancelWaypoint(String reason) {
 
         follower.stop();
-
-        waypointActive = false;
-        activeWaypoint = null;
-        targetName = reason;
+        finishWaypoint(reason);
     }
 }
