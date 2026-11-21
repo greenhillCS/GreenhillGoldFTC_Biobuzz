@@ -6,11 +6,11 @@ import com.pedropathing.follower.Follower;
 import com.pedropathing.math.Pose;
 
 @Autonomous(name = "Teammate Paths: Ayan & Bihaan", group = "Autonomous")
-public class AyanBihaan extends LinearOpMode {
+public class OLDAyanBihaan extends LinearOpMode {
 
     private Follower follower;
-    private AyanPath ayanPath;   // Renamed from ayanContainer
-    private BihaanPath bihaanPath; // Renamed from bihaanContainer
+    private OLDAyanPath ayanPath;   // Renamed from ayanContainer
+    private OLDBihaanPath bihaanPath; // Renamed from bihaanContainer
     private boolean runAyan = true;
 
     @Override
@@ -19,8 +19,8 @@ public class AyanBihaan extends LinearOpMode {
         follower = Constants.create(hardwareMap);
 
         // Instantiate both teammate path coordinate files
-        ayanPath = new AyanPath();
-        bihaanPath = new BihaanPath();
+        ayanPath = new OLDAyanPath();
+        bihaanPath = new OLDBihaanPath();
 
         // Set the starting position to match the visualizer start position (12, 12, 90 degrees)
         Pose startPose = new Pose(12, 12, Math.toRadians(90));

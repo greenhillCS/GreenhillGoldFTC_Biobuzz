@@ -1,13 +1,12 @@
 package org.firstinspires.ftc.teamcode.pedro;
 
-import static com.pedropathing.api.Paths.*;
 import com.pedropathing.api.Paths;
 import com.pedropathing.api.PoseFactory;
 import com.pedropathing.math.Pose;
 import com.pedropathing.paths.Path;
 
 // Changed class name to match your file name
-public class BihaanPath {
+public class OLDBihaanPath {
 
     private final PoseFactory poseFactory = PoseFactory.degrees();
 

@@ -12,18 +12,18 @@ import static com.pedropathing.ivy.pedro.PedroCommands.follow;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
-@Autonomous(name = "ayanPath", group = "Autonomous")
-public class AyanPath extends LinearOpMode {
+@Autonomous(name = "alexPath", group = "Autonomous")
+public class OLDAlexPath extends LinearOpMode {
     private Follower follower;
     private final PoseFactory poseFactory = PoseFactory.degrees();
     private final Pose start = poseFactory.of(56, 8, 90);
-    private final Pose path1 = poseFactory.of(23.748, 50.0819, 180);
-    private final Pose path1Control1 = poseFactory.of(23.5024, 22.2905, 0);
-    private final Pose point2 = poseFactory.of(21.5177, 117.3499, -88.101);
-    private final Pose point3 = poseFactory.of(115.8604, 115.8515, 179.0901);
-    private final Pose point4 = poseFactory.of(112.2584, 47, 87.0053);
-    private final Pose point5 = poseFactory.of(87.9053, 23.6533, 9.3094);
-    private final Pose point5Control1 = poseFactory.of(108.3058, 26.8997, 0);
+    private final Pose path1 = poseFactory.of(17.1613, 66.6621, 180);
+    private final Pose point2 = poseFactory.of(53.7697, 114.3973, 168.3748);
+    private final Pose point2Control1 = poseFactory.of(28.3571, 119.9045, 0);
+    private final Pose point3 = poseFactory.of(110.8636, 98.1356, 164.1018);
+    private final Pose point4 = poseFactory.of(107.2616, 33.1453, 66.2016);
+    private final Pose point4Control1 = poseFactory.of(118.6653, 58.7159, 0);
+    private final Pose point5 = poseFactory.of(77.9117, 18.4294, 26.6289);
     // Autonomous routine
     public Command autoRoutine() {
         return sequential(
@@ -56,18 +56,18 @@ public class AyanPath extends LinearOpMode {
         }
     }
     public Path path1() {
-        return Paths.curve(start, path1Control1, path1).linear(start, path1);
+        return Paths.line(start, path1).linear(start, path1);
     }
     public Path path2() {
-        return Paths.line(path1, point2).reverseTangent();
+        return Paths.curve(path1, point2Control1, point2).reverseTangent();
     }
     public Path path3() {
         return Paths.line(point2, point3).reverseTangent();
     }
     public Path path4() {
-        return Paths.line(point3, point4).reverseTangent();
+        return Paths.curve(point3, point4Control1, point4).reverseTangent();
     }
     public Path path5() {
-        return Paths.curve(point4, point5Control1, point5).reverseTangent();
+        return Paths.line(point4, point5).reverseTangent();
     }
 }
